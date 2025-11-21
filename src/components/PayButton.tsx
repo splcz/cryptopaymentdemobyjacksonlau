@@ -1,7 +1,8 @@
-import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi'
 import { useChainId } from 'wagmi'
 import { parseUnits } from 'viem'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { SelectedToken } from './AssetBalance'
 
 // ERC20 ABI - 只需要 transfer 函数
 const erc20Abi = [
@@ -52,42 +53,55 @@ const TOKEN_ADDRESSES: Record<number, { USDT?: `0x${string}`; USDC?: `0x${string
 }
 
 const RECIPIENT_ADDRESS = '0xecd72934b10d3d2dafba604ab2b1cd1829a79749' as `0x${string}`
-const PAYMENT_AMOUNT = 0.1
 const TOKEN_DECIMALS = 6 // USDT 和 USDC 都是 6 位小数
 
-type TokenType = 'USDT' | 'USDC'
+// 根据链ID获取区块链浏览器URL
+const getExplorerUrl = (chainId: number, hash: string): string => {
+  const explorerUrls: Record<number, string> = {
+    1: `https://etherscan.io/tx/${hash}`, // Ethereum Mainnet
+    11155111: `https://sepolia.etherscan.io/tx/${hash}`, // Sepolia Testnet
+    56: `https://bscscan.com/tx/${hash}`, // BSC Mainnet
+    137: `https://polygonscan.com/tx/${hash}`, // Polygon Mainnet
+    42161: `https://arbiscan.io/tx/${hash}`, // Arbitrum One
+    10: `https://optimistic.etherscan.io/tx/${hash}`, // Optimism
+  }
+  return explorerUrls[chainId] || `https://etherscan.io/tx/${hash}`
+}
 
 interface PayButtonProps {
   address: `0x${string}`
+  amount: number
+  selectedToken: SelectedToken | null
+  onPaymentSuccess?: (success: boolean) => void
 }
 
-export function PayButton({}: PayButtonProps) {
+export function PayButton({ amount, selectedToken, onPaymentSuccess }: PayButtonProps) {
   const chainId = useChainId()
+  const { switchChain, isPending: isSwitching } = useSwitchChain()
   const [error, setError] = useState<string | null>(null)
+  const isSwitchingRef = useRef(false)
 
-  // 获取当前链的代币地址
-  const tokenAddresses = TOKEN_ADDRESSES[chainId] || {}
-  const isUsdtAvailable = !!tokenAddresses.USDT
-  const isUsdcAvailable = !!tokenAddresses.USDC
+  // 获取选中token的地址
+  const selectedTokenAddress = selectedToken 
+    ? (TOKEN_ADDRESSES[selectedToken.chainId]?.[selectedToken.token])
+    : undefined
 
-  // 智能默认选择：优先选择 USDT，如果不支持则选择 USDC
-  const getDefaultToken = (): TokenType => {
-    if (isUsdtAvailable) return 'USDT'
-    if (isUsdcAvailable) return 'USDC'
-    return 'USDT' // 都不支持时默认 USDT
-  }
-
-  const [selectedToken, setSelectedToken] = useState<TokenType>(getDefaultToken())
-  const selectedTokenAddress = selectedToken === 'USDT' ? tokenAddresses.USDT : tokenAddresses.USDC
-
-  // 当链切换时，如果当前选择的代币不支持，自动切换到支持的代币
+  // 如果选择的token不在当前链，需要切换链
   useEffect(() => {
-    if (selectedToken === 'USDT' && !isUsdtAvailable && isUsdcAvailable) {
-      setSelectedToken('USDC')
-    } else if (selectedToken === 'USDC' && !isUsdcAvailable && isUsdtAvailable) {
-      setSelectedToken('USDT')
+    if (selectedToken && chainId !== selectedToken.chainId && !isSwitchingRef.current && !isSwitching) {
+      isSwitchingRef.current = true
+      switchChain({ chainId: selectedToken.chainId }, {
+        onSuccess: () => {
+          isSwitchingRef.current = false
+        },
+        onError: () => {
+          isSwitchingRef.current = false
+        }
+      })
+    } else if (chainId === selectedToken?.chainId) {
+      isSwitchingRef.current = false
     }
-  }, [chainId, selectedToken, isUsdtAvailable, isUsdcAvailable])
+  }, [selectedToken, chainId, switchChain, isSwitching])
 
   const {
     writeContract,
@@ -100,31 +114,49 @@ export function PayButton({}: PayButtonProps) {
     hash,
   })
 
+  // 当支付成功时，通知父组件
+  useEffect(() => {
+    if (isSuccess && onPaymentSuccess) {
+      onPaymentSuccess(true)
+    }
+  }, [isSuccess, onPaymentSuccess])
+
   const handlePay = async () => {
     setError(null)
     
+    if (!selectedToken) {
+      setError('请先选择代币')
+      return
+    }
+
     if (!selectedTokenAddress) {
-      setError(`当前链不支持 ${selectedToken}`)
+      setError(`当前链不支持 ${selectedToken.token}`)
+      return
+    }
+
+    // 如果选择的token不在当前链，需要先切换链
+    if (chainId !== selectedToken.chainId) {
+      setError('正在切换网络，请稍候...')
       return
     }
 
     try {
-      // 将 0.1 转换为正确的单位（USDT 和 USDC 都是 6 位小数）
-      const amount = parseUnits(PAYMENT_AMOUNT.toString(), TOKEN_DECIMALS)
+      // 将金额转换为正确的单位（USDT 和 USDC 都是 6 位小数）
+      const amountInUnits = parseUnits(amount.toString(), TOKEN_DECIMALS)
 
       writeContract({
         address: selectedTokenAddress,
         abi: erc20Abi,
         functionName: 'transfer',
-        args: [RECIPIENT_ADDRESS, amount],
+        args: [RECIPIENT_ADDRESS, amountInUnits],
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : '支付失败')
     }
   }
 
-  const isProcessing = isWriting || isConfirming
-  const isDisabled = isProcessing || !selectedTokenAddress || isSuccess
+  const isProcessing = isWriting || isConfirming || isSwitching || isSwitchingRef.current
+  const isDisabled = isProcessing || !selectedToken || !selectedTokenAddress || isSuccess || chainId !== selectedToken?.chainId
 
   if (isSuccess) {
     return (
@@ -151,16 +183,30 @@ export function PayButton({}: PayButtonProps) {
           color: '#666',
           marginBottom: '8px'
         }}>
-          已支付 {PAYMENT_AMOUNT} {selectedToken}
+          已支付 {amount} {selectedToken?.token}
         </div>
-        {hash && (
+        {hash && selectedToken && (
           <div style={{
             fontSize: 'clamp(10px, 2.5vw, 12px)',
             color: '#666',
             fontFamily: 'monospace',
-            wordBreak: 'break-all'
+            wordBreak: 'break-all',
+            marginTop: '8px'
           }}>
-            交易哈希: {hash}
+            交易哈希:{' '}
+            <a
+              href={getExplorerUrl(selectedToken.chainId, hash)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: '#2196F3',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+                wordBreak: 'break-all'
+              }}
+            >
+              {hash}
+            </a>
           </div>
         )}
       </div>
@@ -186,75 +232,6 @@ export function PayButton({}: PayButtonProps) {
         支付
       </div>
 
-      {/* 代币选择器 */}
-      <div style={{
-        marginBottom: '16px'
-      }}>
-        <div style={{
-          fontSize: 'clamp(12px, 3.5vw, 14px)',
-          color: '#666',
-          marginBottom: '8px',
-          textAlign: 'center',
-          fontWeight: 'bold'
-        }}>
-          选择支付代币
-        </div>
-        <div style={{
-          display: 'flex',
-          gap: '8px',
-          justifyContent: 'center'
-        }}>
-          <button
-            onClick={() => setSelectedToken('USDT')}
-            disabled={!isUsdtAvailable || isProcessing}
-            style={{
-              flex: 1,
-              padding: '10px 16px',
-              fontSize: 'clamp(12px, 3.5vw, 14px)',
-              backgroundColor: selectedToken === 'USDT' ? '#2196F3' : isUsdtAvailable ? '#e3f2fd' : '#f5f5f5',
-              color: selectedToken === 'USDT' ? 'white' : isUsdtAvailable ? '#2196F3' : '#999',
-              border: selectedToken === 'USDT' ? '2px solid #2196F3' : '2px solid #e0e0e0',
-              borderRadius: '6px',
-              cursor: isUsdtAvailable && !isProcessing ? 'pointer' : 'not-allowed',
-              fontWeight: 'bold',
-              opacity: isUsdtAvailable ? 1 : 0.5,
-              transition: 'all 0.2s'
-            }}
-          >
-            USDT
-            {!isUsdtAvailable && ' (不支持)'}
-          </button>
-          <button
-            onClick={() => setSelectedToken('USDC')}
-            disabled={!isUsdcAvailable || isProcessing}
-            style={{
-              flex: 1,
-              padding: '10px 16px',
-              fontSize: 'clamp(12px, 3.5vw, 14px)',
-              backgroundColor: selectedToken === 'USDC' ? '#2196F3' : isUsdcAvailable ? '#e3f2fd' : '#f5f5f5',
-              color: selectedToken === 'USDC' ? 'white' : isUsdcAvailable ? '#2196F3' : '#999',
-              border: selectedToken === 'USDC' ? '2px solid #2196F3' : '2px solid #e0e0e0',
-              borderRadius: '6px',
-              cursor: isUsdcAvailable && !isProcessing ? 'pointer' : 'not-allowed',
-              fontWeight: 'bold',
-              opacity: isUsdcAvailable ? 1 : 0.5,
-              transition: 'all 0.2s'
-            }}
-          >
-            USDC
-            {!isUsdcAvailable && ' (不支持)'}
-          </button>
-        </div>
-      </div>
-
-      <div style={{
-        fontSize: 'clamp(12px, 3.5vw, 14px)',
-        color: '#666',
-        marginBottom: '16px',
-        textAlign: 'center'
-      }}>
-        支付金额: {PAYMENT_AMOUNT} {selectedToken}
-      </div>
       <div style={{
         fontSize: 'clamp(10px, 2.5vw, 12px)',
         color: '#999',
@@ -302,7 +279,7 @@ export function PayButton({}: PayButtonProps) {
           width: '100%',
           padding: '14px 28px',
           fontSize: 'clamp(14px, 4vw, 16px)',
-          backgroundColor: isDisabled ? '#ccc' : '#4CAF50',
+          backgroundColor: isDisabled ? '#ccc' : '#333',
           color: 'white',
           border: 'none',
           borderRadius: '6px',
@@ -311,7 +288,7 @@ export function PayButton({}: PayButtonProps) {
           transition: 'all 0.2s'
         }}
       >
-        {isWriting ? '准备交易...' : isConfirming ? '确认中...' : !selectedTokenAddress ? `当前链不支持 ${selectedToken}` : `支付 ${PAYMENT_AMOUNT} ${selectedToken}`}
+        {isSwitching || isSwitchingRef.current ? '切换网络中...' : isWriting ? '准备交易...' : isConfirming ? '确认中...' : !selectedToken ? '请选择代币' : chainId !== selectedToken.chainId ? '等待切换网络...' : !selectedTokenAddress ? `当前链不支持 ${selectedToken.token}` : `支付 ${amount} ${selectedToken.token}`}
       </button>
     </div>
   )

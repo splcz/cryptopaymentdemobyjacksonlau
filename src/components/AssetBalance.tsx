@@ -1,7 +1,11 @@
 import { useBalance } from 'wagmi'
-import { useChainId } from 'wagmi'
 
-// 常见链的代币合约地址
+// 支持的链和代币配置
+const SUPPORTED_CHAINS = [
+  { id: 1, name: 'Ethereum' },
+  { id: 11155111, name: 'Sepolia' },
+]
+
 const TOKEN_ADDRESSES: Record<number, { USDT?: `0x${string}`; USDC?: `0x${string}` }> = {
   // Ethereum Mainnet
   1: {
@@ -13,87 +17,138 @@ const TOKEN_ADDRESSES: Record<number, { USDT?: `0x${string}`; USDC?: `0x${string
     USDT: '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0',
     USDC: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
   },
-  // BSC Mainnet
-  56: {
-    USDT: '0x55d398326f99059fF775485246999027B3197955',
-    USDC: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
-  },
-  // Polygon Mainnet
-  137: {
-    USDT: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
-    USDC: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
-  },
-  // Arbitrum One
-  42161: {
-    USDT: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
-    USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  },
-  // Optimism
-  10: {
-    USDT: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
-    USDC: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
-  },
+}
+
+type TokenType = 'USDT' | 'USDC'
+
+export interface SelectedToken {
+  chainId: number
+  token: TokenType
 }
 
 interface AssetBalanceProps {
   address: `0x${string}`
+  selectedToken: SelectedToken | null
+  onTokenSelect: (token: SelectedToken) => void
 }
 
-export function AssetBalance({ address }: AssetBalanceProps) {
-  const chainId = useChainId()
-  
-  // 获取当前链的代币地址
-  const tokenAddresses = TOKEN_ADDRESSES[chainId] || {}
-  const usdtAddress = tokenAddresses.USDT
-  const usdcAddress = tokenAddresses.USDC
-
-  // 获取 USDT 余额（如果当前链支持）
-  const { data: usdtBalance, isLoading: usdtLoading } = useBalance({
+// 单个资产项组件，用于调用useBalance hook
+function AssetItem({ 
+  chainId, 
+  chainName, 
+  token, 
+  tokenAddress, 
+  address, 
+  isSelected, 
+  onSelect 
+}: { 
+  chainId: number
+  chainName: string
+  token: TokenType
+  tokenAddress?: `0x${string}`
+  address: `0x${string}`
+  isSelected: boolean
+  onSelect: () => void
+}) {
+  const { data: balance, isLoading } = useBalance({
     address,
-    token: usdtAddress,
+    token: tokenAddress,
+    chainId: chainId,
     query: {
-      enabled: !!usdtAddress && !!address,
+      enabled: !!tokenAddress && !!address,
     },
   })
 
-  // 获取 USDC 余额（如果当前链支持）
-  const { data: usdcBalance, isLoading: usdcLoading } = useBalance({
-    address,
-    token: usdcAddress,
-    query: {
-      enabled: !!usdcAddress && !!address,
-    },
+  const available = !!tokenAddress
+  const balanceFormatted = balance?.formatted || '0.00'
+
+  return (
+    <div
+      onClick={() => available && onSelect()}
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '12px',
+        backgroundColor: isSelected ? '#e3f2fd' : available ? '#f5f5f5' : '#f9f9f9',
+        borderRadius: '6px',
+        border: isSelected ? '2px solid #2196F3' : '1px solid #e0e0e0',
+        gap: '8px',
+        cursor: available ? 'pointer' : 'not-allowed',
+        transition: 'all 0.2s',
+        opacity: available ? 1 : 0.5
+      }}
+    >
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        flexShrink: 0
+      }}>
+        {isSelected && (
+          <span style={{
+            fontSize: 'clamp(14px, 4vw, 16px)',
+            color: '#2196F3',
+            fontWeight: 'bold'
+          }}>
+            ✓
+          </span>
+        )}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '2px'
+        }}>
+          <div style={{
+            fontSize: 'clamp(14px, 4vw, 16px)',
+            fontWeight: 'bold',
+            color: isSelected ? '#2196F3' : available ? '#333' : '#999',
+          }}>
+            {token}
+          </div>
+          <div style={{
+            fontSize: 'clamp(10px, 2.5vw, 12px)',
+            color: isSelected ? '#2196F3' : '#999',
+            fontWeight: 'normal'
+          }}>
+            {chainName}
+          </div>
+        </div>
+      </div>
+      <div style={{
+        fontSize: 'clamp(13px, 3.8vw, 16px)',
+        fontFamily: 'monospace',
+        color: isSelected ? '#2196F3' : available ? '#666' : '#999',
+        textAlign: 'right',
+        wordBreak: 'break-word',
+        overflowWrap: 'break-word'
+      }}>
+        {isLoading ? '加载中...' : (
+          <span>
+            {parseFloat(balanceFormatted).toLocaleString('zh-CN', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function AssetBalance({ address, selectedToken, onTokenSelect }: AssetBalanceProps) {
+  // 为所有链上的所有token创建资产列表
+  const allAssets = SUPPORTED_CHAINS.flatMap(chain => {
+    const tokenAddresses = TOKEN_ADDRESSES[chain.id] || {}
+    const tokens: TokenType[] = ['USDT', 'USDC']
+    
+    return tokens.map(token => ({
+      chainId: chain.id,
+      chainName: chain.name,
+      token: token as TokenType,
+      tokenAddress: tokenAddresses[token as TokenType],
+    }))
   })
-
-  // 获取链名称
-  const getChainName = (id: number) => {
-    const chainNames: Record<number, string> = {
-      1: 'Ethereum Mainnet',
-      11155111: 'Sepolia Testnet',
-      56: 'BSC',
-      137: 'Polygon',
-      42161: 'Arbitrum',
-      10: 'Optimism',
-    }
-    return chainNames[id] || `Chain ${id}`
-  }
-
-  const assets = [
-    {
-      symbol: 'USDT',
-      balance: usdtBalance?.formatted || '0.00',
-      loading: usdtLoading,
-      decimals: usdtBalance?.decimals || 6,
-      available: !!usdtAddress,
-    },
-    {
-      symbol: 'USDC',
-      balance: usdcBalance?.formatted || '0.00',
-      loading: usdcLoading,
-      decimals: usdcBalance?.decimals || 6,
-      available: !!usdcAddress,
-    },
-  ]
 
   return (
     <div style={{
@@ -111,102 +166,51 @@ export function AssetBalance({ address }: AssetBalanceProps) {
         marginBottom: '8px',
         textAlign: 'center'
       }}>
-        资产余额
-      </div>
-      <div style={{
-        fontSize: 'clamp(10px, 2.5vw, 12px)',
-        color: '#999',
-        textAlign: 'center',
-        marginBottom: '12px',
-        lineHeight: '1.4',
-        padding: '0 8px'
-      }}>
-        {getChainName(chainId)} (Chain ID: {chainId})
+        选择Token
       </div>
       <div style={{
         display: 'flex',
         flexDirection: 'column',
         gap: '10px'
       }}>
-        {assets.map((asset) => {
-          if (!asset.available) {
-            return (
-              <div
-                key={asset.symbol}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '12px',
-                  backgroundColor: '#f9f9f9',
-                  borderRadius: '6px',
-                  border: '1px solid #e0e0e0',
-                  opacity: 0.5,
-                  gap: '8px'
-                }}
-              >
-                <div style={{
-                  fontSize: 'clamp(14px, 4vw, 16px)',
-                  fontWeight: 'bold',
-                  color: '#999',
-                  flexShrink: 0
-                }}>
-                  {asset.symbol}
-                </div>
-                <div style={{
-                  fontSize: 'clamp(12px, 3.5vw, 14px)',
-                  color: '#999',
-                  fontStyle: 'italic',
-                  textAlign: 'right'
-                }}>
-                  当前链不支持
-                </div>
-              </div>
-            )
-          }
+        {allAssets.map((asset) => {
+          const isSelected = selectedToken?.chainId === asset.chainId && selectedToken?.token === asset.token
           
           return (
-            <div
-              key={asset.symbol}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '12px',
-                backgroundColor: '#f5f5f5',
-                borderRadius: '6px',
-                border: '1px solid #e0e0e0',
-                gap: '8px'
-              }}
-            >
-              <div style={{
-                fontSize: 'clamp(14px, 4vw, 16px)',
-                fontWeight: 'bold',
-                color: '#333',
-                flexShrink: 0
-              }}>
-                {asset.symbol}
-              </div>
-              <div style={{
-                fontSize: 'clamp(13px, 3.8vw, 16px)',
-                fontFamily: 'monospace',
-                color: '#666',
-                textAlign: 'right',
-                wordBreak: 'break-word',
-                overflowWrap: 'break-word'
-              }}>
-                {asset.loading ? '加载中...' : (
-                  <span>
-                    {parseFloat(asset.balance).toLocaleString('zh-CN', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                )}
-              </div>
-            </div>
+            <AssetItem
+              key={`${asset.chainId}-${asset.token}`}
+              chainId={asset.chainId}
+              chainName={asset.chainName}
+              token={asset.token}
+              tokenAddress={asset.tokenAddress}
+              address={address}
+              isSelected={isSelected}
+              onSelect={() => onTokenSelect({ chainId: asset.chainId, token: asset.token })}
+            />
           )
         })}
+        <button
+          style={{
+            padding: '12px 16px',
+            fontSize: 'clamp(14px, 4vw, 16px)',
+            backgroundColor: '#f5f5f5',
+            color: '#666',
+            border: '1px solid #e0e0e0',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            transition: 'all 0.2s',
+            marginTop: '4px'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#e8e8e8'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#f5f5f5'
+          }}
+        >
+          选择更多Token
+        </button>
       </div>
     </div>
   )
