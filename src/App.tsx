@@ -66,7 +66,8 @@ function App() {
           gap: '16px',
           padding: '16px',
           paddingTop: '60px',
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
+          backgroundColor: '#F5F5F5'
         }}>
           {!isPaymentSuccess && (
             <div style={{
