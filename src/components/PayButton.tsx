@@ -1,8 +1,14 @@
-import { useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi'
+import { useWriteContract, useWaitForTransactionReceipt, useSwitchChain, useAccount } from 'wagmi'
 import { useChainId } from 'wagmi'
 import { parseUnits } from 'viem'
 import { useState, useEffect, useRef } from 'react'
 import { SelectedToken } from './AssetBalance'
+import { useAtomValue } from 'jotai'
+import axiosInstance from '../lib/axios'
+import { preOrderDetailAtom } from '../pages/pay'
+import { apiUrl } from '../lib/constants/api'
+import { useQuery } from '@tanstack/react-query'
+import { CLIENT_TYPE, PaymentToast, TerminalStatuses } from '../lib/constants/paymentUtil'
 
 // ERC20 ABI - 只需要 transfer 函数
 const erc20Abi = [
@@ -76,15 +82,40 @@ interface PayButtonProps {
 }
 
 export function PayButton({ amount, selectedToken, onPaymentSuccess }: PayButtonProps) {
+	const { address } = useAccount()
+	const { data: preOrderDetail } = useAtomValue(preOrderDetailAtom)
+	const { preSn,digitalAmount,rate } = preOrderDetail || {}
   const chainId = useChainId()
   const { switchChain, isPending: isSwitching } = useSwitchChain()
   const [error, setError] = useState<string | null>(null)
   const isSwitchingRef = useRef(false)
+	const {token:coin, chainName:chain, paymentAddress} = selectedToken || {}
+	const [sn,setSn] = useState('')
+	const params = new URLSearchParams(window.location.search)
+	const walletName = params.get('walletName')
 
   // 获取选中token的地址
   const selectedTokenAddress = selectedToken 
     ? (TOKEN_ADDRESSES[selectedToken.chainId]?.[selectedToken.token])
     : undefined
+
+	useQuery({
+		queryKey: [apiUrl.preOrderStatusApi, preSn],
+		queryFn: () => {
+			return axiosInstance.post(apiUrl.preOrderStatusApi, {
+				preSn,
+			})
+		},
+		refetchInterval: ({state:{data:response}}) => {
+			const status = response?.data
+			// 如果订单已完成，停止轮询
+			if (TerminalStatuses.includes(status)) {
+				alert(PaymentToast[status as keyof typeof PaymentToast])
+				return false
+			}
+			return 3000 // 否则每 3 秒轮询一次
+		},
+	})
 
   // 如果选择的token不在当前链，需要切换链
   useEffect(() => {
@@ -108,7 +139,17 @@ export function PayButton({ amount, selectedToken, onPaymentSuccess }: PayButton
     data: hash,
     isPending: isWriting,
     error: writeError,
-  } = useWriteContract()
+  } = useWriteContract({
+		mutation: {
+			onSuccess: (hash) => {
+				// 立即绑定 hash
+				axiosInstance.post(apiUrl.bindTxHashApi, {
+					txHash: hash,
+					sn,
+				})
+			},
+		},
+	})
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
@@ -140,6 +181,21 @@ export function PayButton({ amount, selectedToken, onPaymentSuccess }: PayButton
       return
     }
 
+		const params = {
+			preSn,
+			digitalAmount,
+			coin,
+			rate,
+			walletName,
+			clientType: CLIENT_TYPE,
+			isWeb3: 1,
+			chain,
+			signer: address
+		};
+		const res = await axiosInstance.post(apiUrl.createOrderApi, params)
+		const {sn} = res.data
+		setSn(sn)
+
     try {
       // 将金额转换为正确的单位（USDT 和 USDC 都是 6 位小数）
       const amountInUnits = parseUnits(amount.toString(), TOKEN_DECIMALS)
@@ -148,7 +204,7 @@ export function PayButton({ amount, selectedToken, onPaymentSuccess }: PayButton
         address: selectedTokenAddress,
         abi: erc20Abi,
         functionName: 'transfer',
-        args: [RECIPIENT_ADDRESS, amountInUnits],
+        args: [paymentAddress, amountInUnits],
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : '支付失败')

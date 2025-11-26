@@ -1,4 +1,6 @@
+import { useAtomValue } from 'jotai';
 import { useBalance } from 'wagmi'
+import { preOrderDetailAtom } from '../pages/pay';
 
 // 支持的链和代币配置
 const SUPPORTED_CHAINS = [
@@ -24,6 +26,8 @@ type TokenType = 'USDT' | 'USDC'
 export interface SelectedToken {
   chainId: number
   token: TokenType
+  chainName: string
+	paymentAddress: `0x${string}`
 }
 
 interface AssetBalanceProps {
@@ -137,6 +141,10 @@ function AssetItem({
 }
 
 export function AssetBalance({ address, selectedToken, onTokenSelect }: AssetBalanceProps) {
+	const { data: preOrderDetail } = useAtomValue(preOrderDetailAtom)
+	const params = new URLSearchParams(window.location.search)
+	const walletName = params.get('walletName')
+	
   // 为所有链上的所有token创建资产列表
   const allAssets = SUPPORTED_CHAINS.flatMap(chain => {
     const tokenAddresses = TOKEN_ADDRESSES[chain.id] || {}
@@ -149,6 +157,17 @@ export function AssetBalance({ address, selectedToken, onTokenSelect }: AssetBal
       tokenAddress: tokenAddresses[token as TokenType],
     }))
   })
+
+	const onSelect = (asset: Omit<SelectedToken, 'paymentAddress'>) => {
+		const wallet = preOrderDetail?.web3Wallets.find((wallet:any) => wallet.walletName === walletName)
+		const paymentAddress = wallet?.chains.find((chain:any) => chain.chain === asset.chainName)?.paymentAddress
+		onTokenSelect({
+			chainId: asset.chainId,
+			token: asset.token,
+			chainName: asset.chainName,
+			paymentAddress: paymentAddress
+		})
+	}
 
   return (
     <div style={{
@@ -185,7 +204,7 @@ export function AssetBalance({ address, selectedToken, onTokenSelect }: AssetBal
               tokenAddress={asset.tokenAddress}
               address={address}
               isSelected={isSelected}
-              onSelect={() => onTokenSelect({ chainId: asset.chainId, token: asset.token })}
+              onSelect={() => onSelect(asset)}
             />
           )
         })}
