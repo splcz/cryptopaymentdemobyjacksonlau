@@ -63,6 +63,52 @@ export default function Pay() {
 							fontWeight: 'bold',
 							whiteSpace: 'nowrap'
 						}}>
+							你当前正在为京东的商品付款，订单号：
+						</label>
+						<span style={{
+							fontSize: 'clamp(14px, 4vw, 16px)',
+							fontWeight: 'bold',
+							whiteSpace: 'nowrap'
+						}}>
+							31415926
+						</span>
+					</div>
+					<div style={{
+						display: 'flex',
+						justifyContent: 'space-between',
+						padding: '0 16px',
+						boxSizing: 'border-box',
+						width: '100%',
+						maxWidth: '500px'
+					}}>
+						<label style={{
+							fontSize: 'clamp(14px, 4vw, 16px)',
+							fontWeight: 'bold',
+							whiteSpace: 'nowrap'
+						}}>
+							Product Name:
+						</label>
+						<span style={{
+							fontSize: 'clamp(14px, 4vw, 16px)',
+							fontWeight: 'bold',
+							whiteSpace: 'nowrap'
+						}}>
+							MacBook Pro 16-inch
+						</span>
+					</div>
+					<div style={{
+						display: 'flex',
+						justifyContent: 'space-between',
+						padding: '0 16px',
+						boxSizing: 'border-box',
+						width: '100%',
+						maxWidth: '500px'
+					}}>
+						<label style={{
+							fontSize: 'clamp(14px, 4vw, 16px)',
+							fontWeight: 'bold',
+							whiteSpace: 'nowrap'
+						}}>
 							Total Amount: {preOrderDetail.orderAmount}
 						</label>
 						<span style={{

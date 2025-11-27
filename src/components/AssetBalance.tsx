@@ -1,6 +1,8 @@
 import { useAtomValue } from 'jotai';
-import { useBalance } from 'wagmi'
+import { useBalance, useReadContracts } from 'wagmi'
 import { preOrderDetailAtom } from '../pages/pay';
+import { STABLE_TOKENS } from '../lib/tokens';
+import { erc20Abi, formatUnits } from 'viem';
 
 // 支持的链和代币配置
 const SUPPORTED_CHAINS = [
@@ -62,6 +64,34 @@ function AssetItem({
       enabled: !!tokenAddress && !!address,
     },
   })
+
+	// // 单个useReadContracts循环调用
+	// const allChainIds = [1, 11155111, 56] as const;
+
+	// const { data: balances } = useReadContracts({
+	// 	contracts: allChainIds.flatMap(chainId => 
+	// 		Object.values(STABLE_TOKENS[chainId] || {}).map(token => ({
+	// 			address: token.address,
+	// 			abi: erc20Abi,
+	// 			functionName: 'balanceOf',
+	// 			args: [address],
+	// 			chainId: token.chainId
+	// 		}))
+	// 	)
+	// });
+
+	// // 处理结果
+	// balances?.forEach((item, index) => {
+	// 	const allTokens = allChainIds.flatMap(id => Object.values(STABLE_TOKENS[id] || {}));
+	// 	const token = allTokens[index];
+		
+	// 	if (item.result) {
+	// 		console.log(
+	// 			formatUnits(item.result, token.decimals),
+	// 			`${token.symbol} on chain ${token.chainId}`
+	// 		);
+	// 	}
+	// });
 
   const available = !!tokenAddress
   const balanceFormatted = balance?.formatted || '0.00'

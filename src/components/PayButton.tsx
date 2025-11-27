@@ -232,7 +232,7 @@ export function PayButton({ amount, selectedToken, onPaymentSuccess }: PayButton
           color: '#4CAF50',
           marginBottom: '8px'
         }}>
-          ✓ 支付成功！
+					等待商户确认中...
         </div>
         <div style={{
           fontSize: 'clamp(12px, 3.5vw, 14px)',
